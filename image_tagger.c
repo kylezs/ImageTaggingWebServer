@@ -14,14 +14,14 @@ Created by: Kyle Zsembery, Student Number: 911920
 #include <sys/types.h>
 #include <unistd.h>
 
-// IP and port (+1 for filename)
+// IP, port (+1 for default filename)
 #define EXPECTED_ARGS 3
 
 
 int main(int argc, char const *argv[]) {
-    if (argc != EXPECTED_ARGS) {
+    if (argc < EXPECTED_ARGS) {
         printf("Program execution should contain arguments <server_ip> and <port_number>\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     assert(argc == EXPECTED_ARGS);
     printf("image_tagger server is now running at IP: %s on port %s\n", argv[1], argv[2]);
