@@ -53,11 +53,15 @@ static bool handle_http_request(int sockfd)
 {
     // try to read the request
     char buff[2049];
+    bzero(buff, sizeof(buff));
     int n = read(sockfd, buff, 2049);
+    printf("\nSockfd being read from: %d\n", sockfd);
+    printf("\n%s\n", buff);
+
     if (n <= 0)
     {
         if (n < 0)
-            perror("read");
+            perror("initial read");
         else
             printf("socket %d close the connection\n", sockfd);
         return false;
@@ -95,7 +99,7 @@ static bool handle_http_request(int sockfd)
         {
             // get the size of the file
             struct stat st;
-            stat("./html/1_intro.html", &st);
+            stat(INTRO_PAGE, &st);
             n = sprintf(buff, HTTP_200_FORMAT, st.st_size);
             // send the header first
             if (write(sockfd, buff, n) < 0)
@@ -104,7 +108,7 @@ static bool handle_http_request(int sockfd)
                 return false;
             }
             // send the file
-            int filefd = open("lab6-GET.html", O_RDONLY);
+            int filefd = open(INTRO_PAGE, O_RDONLY);
             do
             {
                 n = sendfile(sockfd, filefd, NULL, 2048);
@@ -129,7 +133,7 @@ static bool handle_http_request(int sockfd)
 
             // get the size of the file
             struct stat st;
-            stat("lab6-POST.html", &st);
+            stat(START_PAGE, &st);
             // increase file size to accommodate the username
             long size = st.st_size + added_length;
             n = sprintf(buff, HTTP_200_FORMAT, size);
@@ -140,11 +144,11 @@ static bool handle_http_request(int sockfd)
                 return false;
             }
             // read the content of the HTML file
-            int filefd = open("lab6-POST.html", O_RDONLY);
+            int filefd = open(START_PAGE, O_RDONLY);
             n = read(filefd, buff, 2048);
             if (n < 0)
             {
-                perror("read");
+                perror("reading file");
                 close(filefd);
                 return false;
             }
@@ -178,6 +182,7 @@ static bool handle_http_request(int sockfd)
     return true;
 }
 
+// Runs the server
 int main(int argc, char * argv[])
 {
     if (argc < 3)
