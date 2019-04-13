@@ -32,6 +32,14 @@ Credit to lab 6 comp30023 for base of code
 #define ENDGAME_PAGE "./html/6_endgame.html"
 #define GAMEOVER_PAGE "./html/7_gameover.html"
 
+//Post patterns
+#define QUIT_PATTERN "quit=Quit"
+#define QUIT_PATTERN_LEN 9
+#define GUESS_PATTERN "keyword="
+#define GUESS_PATTERN_LEN 8
+#define USER_PATTERN "user="
+#define USER_PATTERN_LEN 5
+
 // constants
 static char const * const HTTP_200_FORMAT = "HTTP/1.1 200 OK\r\n\
 Content-Type: text/html\r\n\
@@ -49,8 +57,16 @@ typedef enum
     UNKNOWN
 } METHOD;
 
+static bool handle_simple_get(int sockfd, const char *page);
+static bool handle_root_page(int sockfd, METHOD method, char *post_data);
+static bool handle_start_page(int sockfd, METHOD method, char *post_data);
+static bool handle_quit_page(int sockfd);
+
+
 static bool handle_http_request(int sockfd)
 {
+    // initialise before required to print a 404 on server
+    int writeN;
     // try to read the request
     char buff[2049];
     bzero(buff, sizeof(buff));
@@ -71,6 +87,7 @@ static bool handle_http_request(int sockfd)
     buff[n] = 0;
 
     char * curr = buff;
+    char * post_data = NULL;
 
     // parse the method
     METHOD method = UNKNOWN;
@@ -83,6 +100,8 @@ static bool handle_http_request(int sockfd)
     {
         curr += 5;
         method = POST;
+        post_data = strstr(buff, "\r\n\r\n") + 4;
+
     }
     else if (write(sockfd, HTTP_400, HTTP_400_LENGTH) < 0)
     {
@@ -93,94 +112,123 @@ static bool handle_http_request(int sockfd)
     // sanitise the URI
     while (*curr == '.' || *curr == '/')
         ++curr;
-    // assume the only valid request URI is "/" but it can be modified to accept more files
-    if (*curr == ' ')
-        if (method == GET)
-        {
-            // get the size of the file
-            struct stat st;
-            stat(INTRO_PAGE, &st);
-            n = sprintf(buff, HTTP_200_FORMAT, st.st_size);
-            // send the header first
-            if (write(sockfd, buff, n) < 0)
-            {
-                perror("write");
-                return false;
-            }
-            // send the file
-            int filefd = open(INTRO_PAGE, O_RDONLY);
-            do
-            {
-                n = sendfile(sockfd, filefd, NULL, 2048);
-            }
-            while (n > 0);
-            if (n < 0)
-            {
-                perror("sendfile");
-                close(filefd);
-                return false;
-            }
-            close(filefd);
-        }
-        else if (method == POST)
-        {
-            // locate the username, it is safe to do so in this sample code, but usually the result is expected to be
-            // copied to another buffer using strcpy or strncpy to ensure that it will not be overwritten.
-            char * username = strstr(buff, "user=") + 5;
-            int username_length = strlen(username);
-            // the length needs to include the ", " before the username
-            long added_length = username_length + 2;
 
-            // get the size of the file
-            struct stat st;
-            stat(START_PAGE, &st);
-            // increase file size to accommodate the username
-            long size = st.st_size + added_length;
-            n = sprintf(buff, HTTP_200_FORMAT, size);
-            // send the header first
-            if (write(sockfd, buff, n) < 0)
-            {
-                perror("write");
-                return false;
-            }
-            // read the content of the HTML file
-            int filefd = open(START_PAGE, O_RDONLY);
-            n = read(filefd, buff, 2048);
-            if (n < 0)
-            {
-                perror("reading file");
-                close(filefd);
-                return false;
-            }
-            close(filefd);
-            // move the trailing part backward
-            int p1, p2;
-            for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 25; --p1, --p2)
-                buff[p1] = buff[p2];
-            ++p2;
-            // put the separator
-            buff[p2++] = ',';
-            buff[p2++] = ' ';
-            // copy the username
-            strncpy(buff + p2, username, username_length);
-            if (write(sockfd, buff, size) < 0)
-            {
-                perror("write");
-                return false;
-            }
-        }
-        else
-            // never used, just for completeness
-            fprintf(stderr, "no other methods supported");
-    // send 404
-    else if (write(sockfd, HTTP_404, HTTP_404_LENGTH) < 0)
+    // if URL '/', root page
+    if (*curr == ' ') {
+        handle_root_page(sockfd, method, post_data);
+    }
+
+    // The game playing page
+    if (strncmp(curr, "?start=Start", 12) == 0) {
+        curr += 12;
+        handle_start_page(sockfd, method, post_data);
+    }
+
+    // send 404 and log this on the server
+    else if ((writeN = write(sockfd, HTTP_404, HTTP_404_LENGTH)) < 0)
     {
         perror("write");
         return false;
+    } else {
+        printf("404 page not found\n");
     }
 
     return true;
 }
+
+static bool handle_root_page(int sockfd, METHOD method, char *post_data) {
+    if (method == GET)
+    {
+        handle_simple_get(sockfd, INTRO_PAGE);
+    }
+    else if (method == POST)
+    {
+        printf("The post data in root page is: %s\n", post_data);
+        // Store the username
+        if (!strncmp(post_data, QUIT_PATTERN, QUIT_PATTERN_LEN)) {
+            handle_quit_page(sockfd);
+        } else if (!strncmp(post_data, USER_PATTERN, USER_PATTERN_LEN)) {
+            printf("Storing username: next \n");
+            handle_simple_get(sockfd, START_PAGE);
+        }
+        else {
+            printf("You hacker man, get fucked\n");
+        }
+    }
+    else {
+        // never used, just for completeness
+        fprintf(stderr, "no other methods supported");
+    }
+    return true;
+}
+
+static bool handle_start_page(int sockfd, METHOD method, char *post_data) {
+    if (method == GET)
+    {
+        handle_simple_get(sockfd, FIRST_TURN_PAGE);
+    } else if (method == POST) {
+        printf("The post data in start page is: %s\n", post_data);
+
+        // is it quit?
+        if (!strncmp(post_data, QUIT_PATTERN, QUIT_PATTERN_LEN)) {
+            handle_quit_page(sockfd);
+        }
+        // is it guess?
+        if (!strncmp(post_data, GUESS_PATTERN, GUESS_PATTERN_LEN)) {
+            char* guess_word = strstr(post_data, GUESS_PATTERN) + GUESS_PATTERN_LEN;
+            // '&' is the beginning of the second POST argument guess=Guess
+            char *clean_guess = strtok(guess_word, "&");
+            printf("A user guessed this word: %s\n", clean_guess);
+            // Check this guess against their list, then if not there, against other user's list
+            
+        }
+
+    } else {
+        // never used, just for completeness
+        fprintf(stderr, "no other methods supported");
+    }
+    return true;
+}
+
+static bool handle_quit_page(int sockfd) {
+    // may have to delete and reset some shit.
+    handle_simple_get(sockfd, ENDGAME_PAGE);
+    return true;
+}
+
+// Just returns the contents of the html at page
+static bool handle_simple_get(int sockfd, const char* page) {
+    // get the size of the file
+
+    printf("Handle simple get returning: %s\n", page);
+    struct stat st;
+    stat(page, &st);
+    char buff[2049];
+    int n = sprintf(buff, HTTP_200_FORMAT, st.st_size);
+    // send the header first
+    if (write(sockfd, buff, n) < 0)
+    {
+        perror("write");
+        return false;
+    }
+    // send the file
+    int filefd = open(page, O_RDONLY);
+    do
+    {
+        n = sendfile(sockfd, filefd, NULL, 2048);
+    }
+    while (n > 0);
+    if (n < 0)
+    {
+        perror("sendfile");
+        close(filefd);
+        return false;
+    }
+    close(filefd);
+    return true;
+}
+
+
 
 // Runs the server
 int main(int argc, char * argv[])
@@ -236,6 +284,7 @@ int main(int argc, char * argv[])
     {
         // monitor file descriptors
         fd_set readfds = masterfds;
+        printf("The max fd: %d\n", maxfd);
         if (select(FD_SETSIZE, &readfds, NULL, NULL, NULL) < 0)
         {
             perror("select");
