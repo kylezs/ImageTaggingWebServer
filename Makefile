@@ -9,7 +9,7 @@ CC     = gcc
 CFLAGS = -Wall -Wpedantic -std=c99
 # modify the flags here ^
 EXE    = image_tagger
-OBJ    = image_tagger.o
+OBJ    = image_tagger.o hashtbl.o list.o strhash.o
 # add any new object files here ^
 
 # top (default) target
@@ -20,7 +20,8 @@ $(EXE): $(OBJ)
 	$(CC) $(CFLAGS) -o $(EXE) $(OBJ)
 
 # other dependencies, what headers are included by these objects
-# image_tagger.o:
+image_tagger.o: hashtbl.h list.h
+hashtbl.o: strhash.h
 
 # ^ add any new dependencies here (for example if you add new modules)
 
