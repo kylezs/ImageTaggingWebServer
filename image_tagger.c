@@ -92,10 +92,11 @@ static bool handle_root_page(int sockfd, METHOD method, char *post_data, game_da
 static bool handle_start_page(int sockfd, METHOD method, char *post_data, game_data_t *game_data);
 static bool handle_quit_page(int sockfd, game_data_t *game_data);
 
+static bool handle_dynamic_get(int sockfd, const char* page, game_data_t *game_data, int client_id);
+
 static void ready_game_data(game_data_t *game_data);
 
 static bool http_redirect(int sockfd, char *qstring);
-
 
 static bool handle_http_request(int sockfd, game_data_t *game_data)
 {
@@ -147,6 +148,7 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     int client_id=0;
     // get pointer to start of cookie part
     char *cookie = strstr(curr, "Cookie:");
+    bool has_username = false;
     if (cookie) {
         // NB: FIX THIS. IN FIREFOX AN EXTRA FIELD IS ADDED AFTER THE COOKIE FIELD
         cookie += 17; // Cookie: clientId=
@@ -158,17 +160,11 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
         printf("the cookie id is: %d\n", client_id);
 
         game_data->cookie_isset[id] = true;
-        // Fetch the username for the user on the connected socket and set it for this connection
         char str[5];
         str[5] = '\0';
-
         sprintf(str, "%d", client_id);
-        if (hash_table_has(game_data->cookie_user_table, str)) {
-            char *username = hash_table_get(game_data->cookie_user_table, str);
-            printf("The cookie has a username: %s\n", username);
-        } else {
-            printf("The cookie does not have a username\n");
-        }
+        has_username = hash_table_has(game_data->cookie_user_table, str);
+
     } else {
         game_data->cookie_isset[id] = false;
     }
@@ -185,7 +181,12 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     // The game playing page
     else if (strncmp(curr, "?start=Start", 12) == 0) {
         curr += 12;
-        return handle_start_page(sockfd, method, post_data, game_data);
+        if (has_username) {
+            return handle_start_page(sockfd, method, post_data, game_data);
+        }
+        else {
+            return handle_simple_get(sockfd, INTRO_PAGE, game_data);
+        }
     }
 
     // send 404 and log this on the server
@@ -227,13 +228,14 @@ static void ready_game_data(game_data_t *game_data) {
 }
 
 static bool handle_root_page(int sockfd, METHOD method, char *post_data, game_data_t *game_data, int client_id) {
-    printf("Received the cookie id in handle_root_page: %d\n", client_id);
     int id = sockfd - NRESERVED_SOCKS;
     if (method == GET)
     {
-        // If the user has a cookie AND their username is set, retrieve start page
-        if (game_data->cookie_isset[id]) {
-            handle_simple_get(sockfd, START_PAGE, game_data);
+        char str[5];
+        str[5] = '\0';
+        sprintf(str, "%d", client_id);
+        if (game_data->cookie_isset[id] && hash_table_has(game_data->cookie_user_table, str)) {
+            handle_dynamic_get(sockfd, START_PAGE, game_data, client_id);
         } else {
             handle_simple_get(sockfd, INTRO_PAGE, game_data);
         }
@@ -253,7 +255,7 @@ static bool handle_root_page(int sockfd, METHOD method, char *post_data, game_da
             sprintf(str, "%d", client_id);
             hash_table_put(game_data->cookie_user_table, str, username);
 
-            handle_simple_get(sockfd, START_PAGE, game_data);
+            handle_dynamic_get(sockfd, START_PAGE, game_data, client_id);
         }
         else {
             printf("You hacker man, get fucked\n");
@@ -332,6 +334,55 @@ static bool handle_quit_page(int sockfd, game_data_t *game_data) {
     handle_simple_get(sockfd, GAMEOVER_PAGE, game_data);
     // return false to close TCP connection
     return false;
+}
+
+static bool handle_dynamic_get(int sockfd, const char* page, game_data_t *game_data, int client_id) {
+    struct stat st;
+    stat(page, &st);
+    char buff[2049];
+    int n;
+    // copied to another buffer using strcpy or strncpy to ensure that it will not be overwritten.
+    char username[20] = "default user";
+    int username_length = strlen(username);
+    // the length needs to include the ", " before the username
+    long added_length = username_length + 2;
+
+    // get the size of the file
+    // increase file size to accommodate the username
+    long size = st.st_size + added_length;
+    n = sprintf(buff, HTTP_200_FORMAT, size);
+    // send the header first
+    if (write(sockfd, buff, n) < 0)
+    {
+        perror("write");
+        return false;
+    }
+    // read the content of the HTML file, should only be startpage or play pages
+    int filefd = open(page, O_RDONLY);
+    n = read(filefd, buff, 2048);
+    if (n < 0)
+    {
+        perror("read");
+        close(filefd);
+        return false;
+    }
+    close(filefd);
+    // move the trailing part backward
+    int p1, p2;
+    for (p1 = size - 1, p2 = p1 - added_length; p1 >= size - 25; --p1, --p2)
+        buff[p1] = buff[p2];
+    ++p2;
+    // put the separator
+    buff[p2++] = ',';
+    buff[p2++] = ' ';
+    // copy the username
+    strncpy(buff + p2, username, username_length);
+    if (write(sockfd, buff, size) < 0)
+    {
+        perror("write");
+        return false;
+    }
+    return true;
 }
 
 // Just returns the contents of the html at page
