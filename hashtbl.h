@@ -14,7 +14,7 @@ typedef struct table HashTable;
 HashTable *new_hash_table(int size);
 void free_hash_table(HashTable *table);
 
-void hash_table_put(HashTable *table, char *key, int value);
+void hash_table_put(HashTable *table, char *key, char* value);
 char*  hash_table_get(HashTable *table, char *key);
 bool hash_table_has(HashTable *table, char *key);
 

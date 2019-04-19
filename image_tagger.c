@@ -25,6 +25,7 @@ Credit to lab 6 comp30023 for base of code
 
 #include "words.h"
 #include "hashtbl.h"
+#include "list.h"
 
 // Page locations - MAYBE PUT THIS IN A SEPARATE HEADER FILE
 #define INTRO_PAGE "./html/1_intro.html"
@@ -80,14 +81,18 @@ typedef struct {
     bool user_ready[MAX_USERS];
     bool cookie_isset[MAX_USERS];
     HashTable *cookie_user_table;
+    List *word_lists[MAX_USERS];
+    bool end_game;
+    int image_no;
 
-    // word list
 } game_data_t;
 
 static bool handle_simple_get(int sockfd, const char *page, game_data_t *game_data);
 static bool handle_root_page(int sockfd, METHOD method, char *post_data, game_data_t *game_data, int client_id);
 static bool handle_start_page(int sockfd, METHOD method, char *post_data, game_data_t *game_data);
 static bool handle_quit_page(int sockfd, game_data_t *game_data);
+
+static void ready_game_data(game_data_t *game_data);
 
 static bool http_redirect(int sockfd, char *qstring);
 
@@ -100,7 +105,7 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     char buff[2049];
     bzero(buff, sizeof(buff));
     int n = read(sockfd, buff, 2049);
-    printf("HTTP Request: \n%s\n", buff);
+    printf("\n\nHTTP Request: \n%s\n", buff);
 
     int id = sockfd - NRESERVED_SOCKS;
 
@@ -131,7 +136,6 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
         curr += 5;
         method = POST;
         post_data = strstr(buff, "\r\n\r\n") + 4;
-
     }
     else if (write(sockfd, HTTP_400, HTTP_400_LENGTH) < 0)
     {
@@ -140,23 +144,33 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     }
 
     // Check if the request contains a cookie
+    int client_id=0;
+    // get pointer to start of cookie part
     char *cookie = strstr(curr, "Cookie:");
     if (cookie) {
         // NB: FIX THIS. IN FIREFOX AN EXTRA FIELD IS ADDED AFTER THE COOKIE FIELD
         cookie += 17; // Cookie: clientId=
-        char client_id_str[4];
+        char client_id_str[5];
         strncpy(client_id_str, cookie, 4);
-        int client_id = atoi(client_id_str);
+        client_id_str[5] = '\0';
+        client_id = atoi(client_id_str);
+
         printf("the cookie id is: %d\n", client_id);
+
         game_data->cookie_isset[id] = true;
         // Fetch the username for the user on the connected socket and set it for this connection
-        if (hash_table_has(game_data->cookie_user_table, client_id) {
-            printf("The cookie has a username");
-            void *username = hash_table_get(game_data->cookie_user_table, client_id);
+        char str[5];
+        str[5] = '\0';
+
+        sprintf(str, "%d", client_id);
+        if (hash_table_has(game_data->cookie_user_table, str)) {
+            char *username = hash_table_get(game_data->cookie_user_table, str);
+            printf("The cookie has a username: %s\n", username);
+        } else {
+            printf("The cookie does not have a username\n");
         }
     } else {
         game_data->cookie_isset[id] = false;
-
     }
 
     // sanitise the URI
@@ -165,13 +179,13 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
 
     // if URL '/', root page
     if (*curr == ' ') {
-        handle_root_page(sockfd, method, post_data, game_data, client_id);
+        return handle_root_page(sockfd, method, post_data, game_data, client_id);
     }
 
     // The game playing page
     else if (strncmp(curr, "?start=Start", 12) == 0) {
         curr += 12;
-        handle_start_page(sockfd, method, post_data, game_data);
+        return handle_start_page(sockfd, method, post_data, game_data);
     }
 
     // send 404 and log this on the server
@@ -201,6 +215,17 @@ static bool http_redirect(int sockfd, char *qstring) {
     return true;
 }
 
+/* Ready the game state for a new game between same players */
+static void ready_game_data(game_data_t *game_data) {
+    game_data->end_game = true;
+    free_list(game_data->word_lists[0]);
+    free_list(game_data->word_lists[1]);
+
+    game_data->user_ready[0] = false;
+    game_data->user_ready[1] = false;
+    game_data->image_no++;
+}
+
 static bool handle_root_page(int sockfd, METHOD method, char *post_data, game_data_t *game_data, int client_id) {
     printf("Received the cookie id in handle_root_page: %d\n", client_id);
     int id = sockfd - NRESERVED_SOCKS;
@@ -217,11 +242,16 @@ static bool handle_root_page(int sockfd, METHOD method, char *post_data, game_da
     else if (method == POST)
     {
         if (!strncmp(post_data, QUIT_PATTERN, QUIT_PATTERN_LEN)) {
-            handle_quit_page(sockfd, game_data);
             game_data->user_ready[id] = false;
+            return handle_quit_page(sockfd, game_data);
         } else if (!strncmp(post_data, USER_PATTERN, USER_PATTERN_LEN)) {
             char* username = strstr(post_data, USER_PATTERN) + USER_PATTERN_LEN;
-            printf("Storing username in hashtable with cookie key: %s\n", username);
+            printf("Storing username '%s' in hashtable with cookie key: %d\n", username, client_id);
+            char str[5];
+            str[5] = '\0';
+
+            sprintf(str, "%d", client_id);
+            hash_table_put(game_data->cookie_user_table, str, username);
 
             handle_simple_get(sockfd, START_PAGE, game_data);
         }
@@ -240,23 +270,52 @@ static bool handle_start_page(int sockfd, METHOD method, char *post_data, game_d
     int id = sockfd - NRESERVED_SOCKS;
     if (method == GET)
     {
+        game_data->end_game = false;
         game_data->user_ready[id] = true;
+
+        // !!!!!!!! HERE FIRST_TURN_PAGE NEEDS MODIFYING WITH IMAGE NO !!!!!!!!!
         handle_simple_get(sockfd, FIRST_TURN_PAGE, game_data);
     } else if (method == POST) {
 
         // is it quit?
         if (!strncmp(post_data, QUIT_PATTERN, QUIT_PATTERN_LEN)) {
-            handle_quit_page(sockfd, game_data);
+            return handle_quit_page(sockfd, game_data);
         }
         // is it guess?
         else if (!strncmp(post_data, GUESS_PATTERN, GUESS_PATTERN_LEN)) {
             bool ready = (game_data->user_ready[0] && game_data->user_ready[1]);
+            // Check if other player ended the game by guessing a word in your list
+            if (game_data->end_game) {
+                handle_simple_get(sockfd, ENDGAME_PAGE, game_data);
+            }
             if (ready) {
                 char* guess_word = strstr(post_data, GUESS_PATTERN) + GUESS_PATTERN_LEN;
                 // '&' is the beginning of the second POST argument guess=Guess
                 char *clean_guess = strtok(guess_word, "&");
+                char *new_guess = malloc((sizeof(char) * strlen(clean_guess)) + 1);
+                strcpy(new_guess, clean_guess);
+
                 printf("User guessed '%s'\n", clean_guess);
-            // Check this guess against their list, then if not there, against other user's list
+                List *this_list = game_data->word_lists[id];
+                List *other_list = game_data->word_lists[!id];
+
+                if (list_find(other_list, clean_guess)) {
+                    printf("Found in other users list, game over.\n");
+                    handle_simple_get(sockfd, ENDGAME_PAGE, game_data);
+
+                    // readies game data for new game
+                    ready_game_data(game_data);
+
+                    printf("New image number: %d\n", game_data->image_no);
+                    // end game for other player too.
+                } else if (!list_find(this_list, clean_guess)) {
+                    // Don't double up on words
+                    printf("The word was not in the list so add it.\n");
+                    list_add_end(this_list, new_guess);
+                    handle_simple_get(sockfd, ACCEPTED_PAGE, game_data);
+                } else {
+                    handle_simple_get(sockfd, ACCEPTED_PAGE, game_data);
+                }
             } else {
                 handle_simple_get(sockfd, DISCARDED_PAGE, game_data);
             }
@@ -270,8 +329,9 @@ static bool handle_start_page(int sockfd, METHOD method, char *post_data, game_d
 
 static bool handle_quit_page(int sockfd, game_data_t *game_data) {
     // may have to delete and reset some shit.
-    handle_simple_get(sockfd, ENDGAME_PAGE, game_data);
-    return true;
+    handle_simple_get(sockfd, GAMEOVER_PAGE, game_data);
+    // return false to close TCP connection
+    return false;
 }
 
 // Just returns the contents of the html at page
@@ -288,7 +348,6 @@ static bool handle_simple_get(int sockfd, const char* page, game_data_t *game_da
         n = sprintf(buff, HTTP_200_SET_ID_COOKIE, st.st_size, client_id);
         game_data->cookie_isset[id] = true;
     } else {
-        printf("Sockfd %d already has cookie.\n", sockfd);
         n = sprintf(buff, HTTP_200_FORMAT, st.st_size);
     }
     // send the header first
@@ -326,7 +385,14 @@ game_data_t init_game_data() {
     game_data.cookie_isset[0] = false;
     game_data.cookie_isset[1] = false;
 
+    game_data.word_lists[0] = new_list();
+    game_data.word_lists[1] = new_list();
+
     game_data.cookie_user_table = new_hash_table(5000);
+
+    game_data.end_game = false;
+
+    game_data.image_no = 1;
     return game_data;
 }
 
@@ -432,6 +498,10 @@ int main(int argc, char * argv[])
                 }
             }
     }
+
+    // Free everything
+    free_list(game_data.word_lists[0]);
+    free_list(game_data.word_lists[1]);
 
     return 0;
 }

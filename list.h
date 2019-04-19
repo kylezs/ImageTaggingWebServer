@@ -4,6 +4,8 @@
  *
  * created for COMP20007 Design of Algorithms - Assignment 1, 2018
  * by Matt Farrugia <matt.farrugia@unimelb.edu.au>
+
+ * list_find() added by Kyle Zsembery
  */
 
 #ifndef LIST_H
@@ -71,5 +73,8 @@ int list_size(List *list);
 
 // returns whether the list contains no elements (true) or some elements (false)
 bool list_is_empty(List *list);
+
+//
+bool list_find(List *list, char *needle);
 
 #endif

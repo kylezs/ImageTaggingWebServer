@@ -4,19 +4,16 @@
  *
  * created for COMP20007 Design of Algorithms - Assignment 1, 2018
  * by Matt Farrugia <matt.farrugia@unimelb.edu.au>
+
+ Modified by Kyle to handle string lists specifically, add list searching and freeing
+ malloced strings
  */
 
 #include <stdlib.h>
 #include <assert.h>
+#include <stdio.h>
+#include <string.h>
 #include "list.h"
-
-/*                         DO NOT CHANGE THIS FILE
- *
- * DO NOT add or modify any definitions or anything else inside this file.
- *
- * We will test your assignment with an unmodified version of this file. Any
- * changes you make will be lost. This may lead to compile errors.
- */
 
 
 // helper function to create a new node and return its address
@@ -50,6 +47,7 @@ void free_list(List *list) {
 	Node *next;
 	while (node) {
 		next = node->next;
+		free(node->data);
 		free_node(node);
 		node = next;
 	}
@@ -199,4 +197,26 @@ bool list_is_empty(List *list) {
 	assert(list != NULL);
 
 	return (list->size==0);
+}
+
+bool list_find(List *list, char *needle) {
+	assert(list != NULL);
+	Node *node = list->head;
+	if (node == NULL) {
+		printf("Head is NULL\n");
+		return false;
+	}
+
+	// SOMETHING IS WRONG IN LIST BUILDING AND SEARCHING
+	printf("Needle: %s\n", needle);
+	printf("The current data: %p\n", node->data);
+
+	while (node) {
+		if (!strcmp(node->data, needle)) {
+			return true;
+		}
+		printf("%s, ", (char*) node->data);
+		node = node->next;
+	}
+	return false;
 }

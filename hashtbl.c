@@ -27,11 +27,11 @@
 typedef struct bucket Bucket;
 struct bucket {
 	char *key;
-	char string[50];
+	char value[50];
 	Bucket *next;
 };
 
-Bucket *new_bucket(char *key, int value) {
+Bucket *new_bucket(char *key, char* value) {
 	Bucket *bucket = malloc(sizeof *bucket);
 	assert(bucket);
 
@@ -40,7 +40,7 @@ Bucket *new_bucket(char *key, int value) {
 	assert(bucket->key);
 	strcpy(bucket->key, key);
 
-	bucket->value = value;
+	strcpy(bucket->value, value);
 	bucket->next = NULL;
 
 	return bucket;
@@ -112,7 +112,7 @@ bool equal(char *a, char *b) {
  * HASH TABLE FUNCTIONS
  */
 
-void hash_table_put(HashTable *table, char *key, int value) {
+void hash_table_put(HashTable *table, char *key, char *value) {
 	assert(table != NULL);
 	assert(key != NULL);
 
@@ -122,7 +122,7 @@ void hash_table_put(HashTable *table, char *key, int value) {
 	Bucket *bucket = table->buckets[hash_value];
 	while (bucket) {
 		if (equal(key, bucket->key)) {
-			bucket->value = value;
+			strcpy(bucket->value, value);
 			return;
 		}
 		bucket = bucket->next;
@@ -209,7 +209,7 @@ void fprint_hash_table(FILE *file, HashTable *table) {
 		Bucket *bucket;
 		bucket = table->buckets[i];
 		while (bucket && j < PRINT_LIMIT) {
-			fprintf(file, "->(\"%s\": %d)", bucket->key, bucket->value);
+			fprintf(file, "->(\"%s\": %s)", bucket->key, bucket->value);
 			bucket = bucket->next;
 			j++;
 		}
