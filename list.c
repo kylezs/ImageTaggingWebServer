@@ -207,10 +207,6 @@ bool list_find(List *list, char *needle) {
 		return false;
 	}
 
-	// SOMETHING IS WRONG IN LIST BUILDING AND SEARCHING
-	printf("Needle: %s\n", needle);
-	printf("The current data: %p\n", node->data);
-
 	while (node) {
 		if (!strcmp(node->data, needle)) {
 			return true;
