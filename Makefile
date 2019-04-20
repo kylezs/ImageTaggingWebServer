@@ -1,12 +1,11 @@
 # # # # # # #
-# Makefile for assignment 2
-#
-# created May 2018
-# Matt Farrugia <matt.farrugia@unimelb.edu.au>
+# Makefile for Assignment 1 comp30023
+# Original: Matt Farrugia - Assignment 2 Design of Algorithms
+# Modified by Kyle Zsembery - 911920
 #
 
 CC     = gcc
-CFLAGS = -Wall -Wpedantic -std=c99
+CFLAGS = -Wall -Wpedantic -std=c99 -g
 # modify the flags here ^
 EXE    = image_tagger
 OBJ    = image_tagger.o hashtbl.o list.o strhash.o
@@ -22,7 +21,6 @@ $(EXE): $(OBJ)
 # other dependencies, what headers are included by these objects
 image_tagger.o: hashtbl.h list.h
 hashtbl.o: strhash.h
-
 # ^ add any new dependencies here (for example if you add new modules)
 
 

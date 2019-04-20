@@ -39,7 +39,6 @@ List *new_list() {
 }
 
 // destroy a list and free its memory
-// DOES NOT FREE POINTERS TO DATA HELD IN THE LISTS NODES, only frees the nodes
 void free_list(List *list) {
 	assert(list != NULL);
 	// free each node
@@ -203,15 +202,12 @@ bool list_find(List *list, char *needle) {
 	assert(list != NULL);
 	Node *node = list->head;
 	if (node == NULL) {
-		printf("Head is NULL\n");
 		return false;
 	}
-
 	while (node) {
 		if (!strcmp(node->data, needle)) {
 			return true;
 		}
-		printf("%s, ", (char*) node->data);
 		node = node->next;
 	}
 	return false;
