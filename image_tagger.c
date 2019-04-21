@@ -96,6 +96,7 @@ typedef struct {
     bool game_over;
     int image_no;
     int assigned_ids[MAX_IDS];
+    int quit_count;
 
 } game_data_t;
 
@@ -182,6 +183,7 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     while (*curr == '.' || *curr == '/')
         ++curr;
 
+    printf("Curr, before strcmp: %s\n", curr);
     // if URL '/', root page
     if (*curr == ' ') {
         return handle_root_page(sockfd, method, post_data, game_data,
@@ -236,6 +238,10 @@ static void ready_game_data(game_data_t *game_data) {
     game_data->user_ready[0] = false;
     game_data->user_ready[1] = false;
     game_data->image_no++;
+
+    game_data->game_over = false;
+
+    game_data->quit_count = 0;
 }
 
 static bool handle_root_page(int sockfd, METHOD method, char *post_data,
@@ -342,10 +348,15 @@ static bool handle_start_page(int sockfd, METHOD method, char *post_data,
 
 static bool handle_quit_page(int sockfd, game_data_t *game_data, int client_id)
 {
+    game_data->quit_count++;
     // may have to delete and reset some shit.
     handle_simple_get(sockfd, GAMEOVER_PAGE, game_data, client_id);
     game_data->game_over = true;
     // return false to close TCP connection
+    if (game_data->quit_count >= 2) {
+        ready_game_data(game_data);
+    }
+    game_data->image_no = 1;
     return false;
 }
 
@@ -454,6 +465,7 @@ static bool handle_simple_get(int sockfd, const char* page, game_data_t
     }
 
     // send the file
+    printf("Page being sent: %s\n", page);
     int filefd = open(page, O_RDONLY);
     do
     {
@@ -493,9 +505,12 @@ static char *resolve_page_name(int page_type, game_data_t *game_data) {
             return FIRST_TURN_PAGE2;
         }
     } else {
-        printf("Sorry, something went wrong resolving the page type\n");
+        printf("No matching page type\n");
     }
-    return INTRO_PAGE;
+    // return INTRO_PAGE;
+    printf("Sorry, something went wrong resolving the\
+page type: %d with image_no:%d\n", page_type, game_data->image_no);
+    return "Nope";
 }
 
 game_data_t init_game_data() {
@@ -517,6 +532,8 @@ game_data_t init_game_data() {
     for (int i=0; i<MAX_IDS; i++) {
         game_data.assigned_ids[i] = 0;
     }
+
+    game_data.quit_count = 0;
     return game_data;
 }
 
@@ -600,7 +617,8 @@ int main(int argc, char * argv[])
                 {
                     struct sockaddr_in cliaddr;
                     socklen_t clilen = sizeof(cliaddr);
-                    int newsockfd = accept(sockfd, (struct sockaddr *)&cliaddr, &clilen);
+                    int newsockfd = accept(sockfd, (struct sockaddr *)&cliaddr,
+                     &clilen);
                     if (newsockfd < 0)
                         perror("accept");
                     else
@@ -615,7 +633,8 @@ int main(int argc, char * argv[])
                         printf(
                             "new connection from %s on socket %d\n",
                             // convert to human readable string
-                            inet_ntop(cliaddr.sin_family, &cliaddr.sin_addr, ip, INET_ADDRSTRLEN),
+                            inet_ntop(cliaddr.sin_family, &cliaddr.sin_addr,
+                                 ip, INET_ADDRSTRLEN),
                             newsockfd
                         );
                     }
