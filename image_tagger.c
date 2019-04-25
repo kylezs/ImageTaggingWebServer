@@ -47,7 +47,11 @@ Credit to lab 6 comp30023 for base of code
 #define ENDGAME_PAGE "./html/6_endgame.html"
 #define GAMEOVER_PAGE "./html/7_gameover.html"
 
+#define INVALID_PAGE "INVALID PAGE"
+
 #define START_GET_QUERY "?start=Start"
+
+#define COOKIE_ID_LEN 4
 
 // Extra ids in case of returning browsers
 #define MAX_IDS MAX_USERS + 4
@@ -61,6 +65,8 @@ Credit to lab 6 comp30023 for base of code
 #define USER_PATTERN_LEN 5
 
 #define NRESERVED_SOCKS 4
+
+#define BUFF_SIZE 2048
 
 // constants
 static char const * const HTTP_200_FORMAT = "HTTP/1.1 200 OK\r\n\
@@ -117,14 +123,15 @@ static bool http_redirect(int sockfd, char *qstring);
 
 static char *resolve_page_name(int page_type, game_data_t *game_data);
 
+/* handles all http requests */
 static bool handle_http_request(int sockfd, game_data_t *game_data)
 {
     // initialise before required to print a 404 on server
     int writeN;
     // try to read the request
-    char buff[2049];
+    char buff[BUFF_SIZE];
     bzero(buff, sizeof(buff));
-    int n = read(sockfd, buff, 2049);
+    int n = read(sockfd, buff, BUFF_SIZE);
 
     if (n <= 0)
     {
@@ -167,9 +174,9 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     bool has_username = false;
     if (cookie) {
         cookie += 17; // Cookie: clientId=
-        char client_id_str[5];
-        strncpy(client_id_str, cookie, 4);
-        client_id_str[5] = '\0';
+        char client_id_str[COOKIE_ID_LEN + 1];
+        strncpy(client_id_str, cookie, COOKIE_ID_LEN);
+        client_id_str[COOKIE_ID_LEN + 1] = '\0';
         client_id = atoi(client_id_str);
         has_username = hash_table_has(game_data->cookie_user_table,
              client_id_str);
@@ -183,7 +190,6 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     while (*curr == '.' || *curr == '/')
         ++curr;
 
-    printf("Curr, before strcmp: %s\n", curr);
     // if URL '/', root page
     if (*curr == ' ') {
         return handle_root_page(sockfd, method, post_data, game_data,
@@ -213,8 +219,9 @@ static bool handle_http_request(int sockfd, game_data_t *game_data)
     return true;
 }
 
+/* Temporary redirects to qstring */
 static bool http_redirect(int sockfd, char *qstring) {
-    char buff[2048];
+    char buff[BUFF_SIZE];
     int n = sprintf(buff, HTTP_307_FORMAT, qstring);
 
     // send the header first
@@ -244,6 +251,7 @@ static void ready_game_data(game_data_t *game_data) {
     game_data->quit_count = 0;
 }
 
+/* handles all actions taken on the / page */
 static bool handle_root_page(int sockfd, METHOD method, char *post_data,
      game_data_t *game_data, int client_id) {
     int id = sockfd - NRESERVED_SOCKS;
@@ -267,14 +275,14 @@ static bool handle_root_page(int sockfd, METHOD method, char *post_data,
             char* username = strstr(post_data, USER_PATTERN) + USER_PATTERN_LEN;
             char str[5];
             str[5] = '\0';
-
             sprintf(str, "%d", client_id);
+            // NB: If username already set, the set username page won't be shown
             hash_table_put(game_data->cookie_user_table, str, username);
 
             handle_dynamic_get(sockfd, START_PAGE, game_data, client_id);
         }
         else {
-            printf("Only quit and user patterns supported\n");
+            fprintf(stderr, "Only quit and user patterns supported\n");
         }
     } else {
         // never used, just for completeness
@@ -283,14 +291,16 @@ static bool handle_root_page(int sockfd, METHOD method, char *post_data,
     return true;
 }
 
+/* handles all actions taken on the /?start=Start page */
 static bool handle_start_page(int sockfd, METHOD method, char *post_data,
         game_data_t *game_data, int client_id) {
     int id = sockfd - NRESERVED_SOCKS;
     if (method == GET)
     {
+        // Ensure game not ended by other player
         game_data->end_game = false;
+        printf("User id: %d ready? %d\n", id, game_data->user_ready[id]);
         game_data->user_ready[id] = true;
-        printf("Handling the get method call on start page\n");
         handle_simple_get(sockfd, resolve_page_name(FIRST_TURN, game_data),
             game_data, client_id);
     }
@@ -305,8 +315,11 @@ static bool handle_start_page(int sockfd, METHOD method, char *post_data,
             bool ready = (game_data->user_ready[0] && game_data->user_ready[1]);
             // Check if game ended by other player
             if (game_data->end_game) {
+                game_data->user_ready[id] = false;
                 handle_simple_get(sockfd, ENDGAME_PAGE, game_data, client_id);
             }
+
+            // are both players ready?
             if (ready) {
                 char* guess_word = strstr(post_data, GUESS_PATTERN)
                     + GUESS_PATTERN_LEN;
@@ -349,14 +362,16 @@ static bool handle_start_page(int sockfd, METHOD method, char *post_data,
 static bool handle_quit_page(int sockfd, game_data_t *game_data, int client_id)
 {
     game_data->quit_count++;
-    // may have to delete and reset some shit.
     handle_simple_get(sockfd, GAMEOVER_PAGE, game_data, client_id);
     game_data->game_over = true;
-    // return false to close TCP connection
+
+    // if both players have quit, we can then ready the game data
+    // for the next connecting players
     if (game_data->quit_count >= 2) {
         ready_game_data(game_data);
     }
     game_data->image_no = 1;
+    // return false to close TCP connection
     return false;
 }
 
@@ -365,7 +380,7 @@ static bool handle_dynamic_get(int sockfd, const char* page,
         game_data_t *game_data, int client_id) {
     struct stat st;
     stat(page, &st);
-    char buff[2049];
+    char buff[BUFF_SIZE];
     int n;
     // copied to another buffer using strcpy or strncpy to ensure that it
     // will not be overwritten.
@@ -393,9 +408,9 @@ static bool handle_dynamic_get(int sockfd, const char* page,
 
         while (node) {
             char* added_data = (char *) node->data;
-            added_length += strlen(added_data) + 2;
             strcat(added_buff, (char*) node->data);
             strcat(added_buff, ", ");
+            added_length += strlen(added_data) + 2;
             node = node->next;
         }
     }
@@ -410,7 +425,7 @@ static bool handle_dynamic_get(int sockfd, const char* page,
     }
     // read the content of the HTML file, should only be startpage or play pages
     int filefd = open(page, O_RDONLY);
-    n = read(filefd, buff, 2048);
+    n = read(filefd, buff, BUFF_SIZE);
     if (n < 0)
     {
         perror("read");
@@ -419,7 +434,7 @@ static bool handle_dynamic_get(int sockfd, const char* page,
     }
     close(filefd);
 
-    char retBuff[2049];
+    char retBuff[BUFF_SIZE];
     sprintf(retBuff, buff, added_buff);
 
     if (write(sockfd, retBuff, size) < 0)
@@ -435,7 +450,7 @@ static bool handle_simple_get(int sockfd, const char* page, game_data_t
         *game_data, int client_id) {
     struct stat st;
     stat(page, &st);
-    char buff[2049];
+    char buff[BUFF_SIZE];
     int n;
 
     if (!strcmp(page, INTRO_PAGE) && (client_id == 0)) {
@@ -465,11 +480,10 @@ static bool handle_simple_get(int sockfd, const char* page, game_data_t
     }
 
     // send the file
-    printf("Page being sent: %s\n", page);
     int filefd = open(page, O_RDONLY);
     do
     {
-        n = sendfile(sockfd, filefd, NULL, 2048);
+        n = sendfile(sockfd, filefd, NULL, BUFF_SIZE);
     }
     while (n > 0);
 
@@ -505,12 +519,12 @@ static char *resolve_page_name(int page_type, game_data_t *game_data) {
             return FIRST_TURN_PAGE2;
         }
     } else {
-        printf("No matching page type\n");
+        fprintf(stderr, "No matching page type\n");
     }
     // return INTRO_PAGE;
     printf("Sorry, something went wrong resolving the\
 page type: %d with image_no:%d\n", page_type, game_data->image_no);
-    return "Nope";
+    return INVALID_PAGE;
 }
 
 game_data_t init_game_data() {
