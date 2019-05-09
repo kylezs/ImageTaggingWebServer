@@ -25,7 +25,6 @@ Credit to lab 6 comp30023 for base of code
 #include <assert.h>
 #include <time.h>
 
-#include "words.h"
 #include "hashtbl.h"
 #include "list.h"
 
