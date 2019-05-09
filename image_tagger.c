@@ -25,6 +25,7 @@ Credit to lab 6 comp30023 for base of code
 #include <assert.h>
 #include <time.h>
 
+#include "words.h"
 #include "hashtbl.h"
 #include "list.h"
 
@@ -53,6 +54,7 @@ Credit to lab 6 comp30023 for base of code
 #define COOKIE_ID_LEN 4
 
 // Extra ids in case of returning browsers
+#define MAX_USERS 2
 #define MAX_IDS MAX_USERS + 4
 
 //Post patterns
